@@ -8,6 +8,9 @@ module LogStash
       include ::LogStash::PluginMixins::RabbitMQConnection
 
       config_name("rabbitmq")
+	  
+	  @bulk_ack = 10
+	  @bulk_ack_current = 0
 
       # The name of the queue Logstash will consume events from.
       config :queue, :validate => :string, :default => ""
@@ -89,7 +92,10 @@ module LogStash
             decorate(event)
             @output_queue << event if event
           end
-          @hare_info.channel.ack(metadata.delivery_tag) if @ack
+		  if @bulk_ack_current >= @bulk_ack
+			@hare_info.channel.ack(metadata.delivery_tag, true) if @ack
+			@bulk_ack_current = 0
+		  end
         end
 
         @hare_info.queue.subscribe_with(@consumer, :manual_ack => @ack, :block => true)
@@ -102,6 +108,9 @@ module LogStash
       end
 
       def shutdown_consumer
+		if @bulk_ack_current > 0
+			@hare_info.channel.ack(metadata.delivery_tag, true) if @ack
+		end
         return unless @consumer
         @consumer.gracefully_shut_down
       end
